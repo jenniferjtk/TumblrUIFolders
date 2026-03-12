@@ -6,7 +6,9 @@
 // ============================================================
 
 const TUMBLR_API_BASE = 'https://api.tumblr.com/v2';
-const REDIRECT_URI = `https://${chrome.runtime.id}.chromiumapp.org/oauth`;
+// Set this to your Vercel deployment URL after deploying the /callback folder
+// e.g. https://tumblr-folders-callback.vercel.app/callback
+const REDIRECT_URI = 'https://YOUR_VERCEL_URL.vercel.app/callback';
 
 // ============================================================
 // MESSAGE ROUTER
@@ -16,7 +18,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       switch (msg.type) {
         case 'GET_REDIRECT_URI':
-          sendResponse({ uri: REDIRECT_URI });
+          sendResponse({ uri: REDIRECT_URI, note: 'Set this in your Tumblr app\'s Default Callback URL and OAuth2 redirect URLs fields.' });
           break;
         case 'SAVE_CREDENTIALS':
           sendResponse(await saveCredentials(msg.clientId, msg.clientSecret));
@@ -106,6 +108,40 @@ async function getCredentialsStatus() {
 // ============================================================
 // OAUTH 2.0 — PKCE flow
 // ============================================================
+// Pending OAuth resolvers keyed by verifier/state
+const pendingOAuth = new Map();
+
+// Listen for the callback message from the Vercel redirect page
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'TF_OAUTH_CALLBACK') {
+    const resolve = pendingOAuth.get(msg.state);
+    if (resolve) {
+      pendingOAuth.delete(msg.state);
+      resolve({ code: msg.code, state: msg.state });
+    }
+  }
+});
+
+// Also listen for tab URL changes to catch the redirect
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo.url) return;
+  if (!changeInfo.url.startsWith(REDIRECT_URI)) return;
+
+  const url = new URL(changeInfo.url);
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+
+  if (code && state) {
+    const resolve = pendingOAuth.get(state);
+    if (resolve) {
+      pendingOAuth.delete(state);
+      resolve({ code, state });
+      // Close the auth tab
+      chrome.tabs.remove(tabId);
+    }
+  }
+});
+
 async function doOAuthLogin() {
   const { clientId, clientSecret } = await getCredentials();
   const verifier = generateVerifier();
@@ -120,60 +156,56 @@ async function doOAuthLogin() {
   authUrl.searchParams.set('code_challenge_method', 'S256');
   authUrl.searchParams.set('state', verifier);
 
+  // Open auth in a new tab
+  chrome.tabs.create({ url: authUrl.toString() });
+
+  // Wait for the callback
   return new Promise((resolve) => {
-    chrome.identity.launchWebAuthFlow(
-      { url: authUrl.toString(), interactive: true },
-      async (redirectUrl) => {
-        if (chrome.runtime.lastError || !redirectUrl) {
-          resolve({ success: false, error: chrome.runtime.lastError?.message || 'Auth cancelled' });
+    pendingOAuth.set(verifier, async ({ code, state: returnedState }) => {
+      try {
+        const tokenRes = await fetch('https://api.tumblr.com/v2/oauth2/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            client_id: clientId,
+            client_secret: clientSecret,
+            redirect_uri: REDIRECT_URI,
+            code_verifier: returnedState,
+          }),
+        });
+        const tokenData = await tokenRes.json();
+        if (!tokenData.access_token) {
+          resolve({ success: false, error: JSON.stringify(tokenData) });
           return;
         }
-        const url = new URL(redirectUrl);
-        const code = url.searchParams.get('code');
-        const returnedState = url.searchParams.get('state');
 
-        if (!code) {
-          resolve({ success: false, error: 'No code returned' });
-          return;
-        }
+        const userRes = await fetch(`${TUMBLR_API_BASE}/user/info`, {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        const userData = await userRes.json();
+        const blogName = userData.response?.user?.blogs?.[0]?.name;
 
-        try {
-          const tokenRes = await fetch('https://api.tumblr.com/v2/oauth2/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              grant_type: 'authorization_code',
-              code,
-              client_id: clientId,
-              client_secret: clientSecret,
-              redirect_uri: REDIRECT_URI,
-              code_verifier: returnedState,
-            }),
-          });
-          const tokenData = await tokenRes.json();
-          if (!tokenData.access_token) {
-            resolve({ success: false, error: JSON.stringify(tokenData) });
-            return;
-          }
+        await chrome.storage.local.set({
+          tf_access_token: tokenData.access_token,
+          tf_refresh_token: tokenData.refresh_token,
+          tf_blog_name: blogName,
+        });
 
-          const userRes = await fetch(`${TUMBLR_API_BASE}/user/info`, {
-            headers: { Authorization: `Bearer ${tokenData.access_token}` },
-          });
-          const userData = await userRes.json();
-          const blogName = userData.response?.user?.blogs?.[0]?.name;
-
-          await chrome.storage.local.set({
-            tf_access_token: tokenData.access_token,
-            tf_refresh_token: tokenData.refresh_token,
-            tf_blog_name: blogName,
-          });
-
-          resolve({ success: true, blogName });
-        } catch (e) {
-          resolve({ success: false, error: e.message });
-        }
+        resolve({ success: true, blogName });
+      } catch (e) {
+        resolve({ success: false, error: e.message });
       }
-    );
+    });
+
+    // Timeout after 5 minutes
+    setTimeout(() => {
+      if (pendingOAuth.has(verifier)) {
+        pendingOAuth.delete(verifier);
+        resolve({ success: false, error: 'Login timed out' });
+      }
+    }, 5 * 60 * 1000);
   });
 }
 

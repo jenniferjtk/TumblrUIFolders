@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tumblr Folders — Connecting…</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #111;
+      color: #e2e2e2;
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .logo span { color: #ff4068; }
+    .status { font-size: 13px; color: #888; }
+    .error { color: #ff4068; font-size: 13px; text-align: center; max-width: 320px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="logo">folders<span>.</span></div>
+  <div class="status" id="status">Completing login…</div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+
+    if (error || !code) {
+      document.getElementById('status').className = 'error';
+      document.getElementById('status').textContent =
+        'Authentication failed: ' + (error || 'No code returned. Please try again.');
+    } else {
+      // Send the code back to the extension
+      // The extension ID is passed via the 'state' param so we know who to message
+      // We use window.opener for tab-based flow, and also try chrome.runtime
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: 'TF_OAUTH_CALLBACK', code, state },
+          '*'
+        );
+        document.getElementById('status').textContent = 'Connected! You can close this tab.';
+        setTimeout(() => window.close(), 1000);
+      } else {
+        // Fallback: show the code so user can manually retry
+        document.getElementById('status').textContent = 'Connected! Closing…';
+        setTimeout(() => window.close(), 1000);
+      }
+    }
+  </script>
+</body>
+</html>
