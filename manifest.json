@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Tumblr Folders",
+  "version": "1.0.0",
+  "description": "Save Tumblr posts into folders. Grid view, tag-based sync, works on mobile too.",
+  "permissions": ["storage", "identity"],
+  "host_permissions": [
+    "https://www.tumblr.com/*",
+    "https://api.tumblr.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.tumblr.com/*"],
+      "js": ["scripts/content.js"],
+      "css": ["styles/sidebar.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["styles/*", "scripts/*"],
+      "matches": ["https://www.tumblr.com/*"]
+    }
+  ]
+}

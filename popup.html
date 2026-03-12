@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 220px;
+      font-family: 'DM Sans', 'Helvetica Neue', Arial, sans-serif;
+      background: #111;
+      color: #e2e2e2;
+      padding: 16px;
+    }
+    h2 {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      font-family: 'DM Mono', monospace;
+    }
+    h2 span { color: #ff4068; }
+    .status {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 14px;
+    }
+    .status.connected { color: #3ecf8e; }
+    button {
+      width: 100%;
+      padding: 8px;
+      background: #ff4068;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button:hover { opacity: 0.85; }
+    .btn-ghost {
+      background: transparent;
+      color: #666;
+      border: 1px solid #2e2e2e;
+      margin-top: 6px;
+    }
+    .btn-ghost:hover { background: #1c1c1c; color: #e2e2e2; }
+    .note {
+      font-size: 10px;
+      color: #444;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <h2>folders<span>.</span></h2>
+  <div class="status" id="status">Checking…</div>
+  <div id="actions"></div>
+  <p class="note" id="note"></p>
+
+  <script>
+    async function send(type, data = {}) {
+      return new Promise(res => chrome.runtime.sendMessage({ type, ...data }, res));
+    }
+
+    (async () => {
+      const status = await send('GET_AUTH_STATUS');
+      const statusEl = document.getElementById('status');
+      const actionsEl = document.getElementById('actions');
+      const noteEl = document.getElementById('note');
+
+      if (!status.hasCredentials) {
+        statusEl.textContent = 'Setup required';
+        actionsEl.innerHTML = `<button id="setup-btn">Open Setup on Tumblr.com</button>`;
+        noteEl.textContent = 'Open tumblr.com to complete the one-time setup.';
+        document.getElementById('setup-btn').addEventListener('click', () => {
+          chrome.tabs.create({ url: 'https://www.tumblr.com/dashboard' });
+          window.close();
+        });
+      } else if (status.authenticated) {
+        statusEl.textContent = `Connected as ${status.blogName}`;
+        statusEl.className = 'status connected';
+        actionsEl.innerHTML = `
+          <button id="open-btn">Open Tumblr Folders</button>
+          <button class="btn-ghost" id="logout-btn">Disconnect account</button>
+        `;
+        noteEl.textContent = 'The sidebar appears automatically on tumblr.com.';
+
+        document.getElementById('open-btn').addEventListener('click', () => {
+          chrome.tabs.create({ url: 'https://www.tumblr.com/dashboard' });
+          window.close();
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+          await send('LOGOUT');
+          window.location.reload();
+        });
+      } else {
+        statusEl.textContent = 'Not connected';
+        actionsEl.innerHTML = `<button id="login-btn">Connect Tumblr Account</button>`;
+        noteEl.textContent = 'Connect once to start saving posts into folders.';
+
+        document.getElementById('login-btn').addEventListener('click', async () => {
+          document.getElementById('login-btn').textContent = 'Connecting…';
+          const result = await send('OAUTH_LOGIN');
+          if (result.success) {
+            window.location.reload();
+          } else {
+            document.getElementById('login-btn').textContent = 'Connect Tumblr Account';
+            statusEl.textContent = 'Login failed';
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
