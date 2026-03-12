@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       switch (msg.type) {
         case 'GET_REDIRECT_URI':
-          sendResponse({ uri: REDIRECT_URI, note: 'Set this in your Tumblr app\'s Default Callback URL and OAuth2 redirect URLs fields.' });
+          sendResponse({ uri: 'https://tumblr-ui-folders.vercel.app', note: 'Set this in your Tumblr app\'s Default Callback URL and OAuth2 redirect URLs fields.' });
           break;
         case 'SAVE_CREDENTIALS':
           sendResponse(await saveCredentials(msg.clientId, msg.clientSecret));
