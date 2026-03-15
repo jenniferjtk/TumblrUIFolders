@@ -8,7 +8,7 @@
 const TUMBLR_API_BASE = 'https://api.tumblr.com/v2';
 // Set this to your Vercel deployment URL after deploying the /callback folder
 // e.g. https://tumblr-folders-callback.vercel.app/callback
-const REDIRECT_URI = 'https://YOUR_VERCEL_URL.vercel.app/callback';
+const REDIRECT_URI = 'https://tumblr-ui-folders.vercel.app/callback';
 
 // ============================================================
 // MESSAGE ROUTER
@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       switch (msg.type) {
         case 'GET_REDIRECT_URI':
-          sendResponse({ uri: 'https://tumblr-ui-folders.vercel.app', note: 'Set this in your Tumblr app\'s Default Callback URL and OAuth2 redirect URLs fields.' });
+          sendResponse({ uri: REDIRECT_URI, note: 'Set this in your Tumblr app\'s Default Callback URL and OAuth2 redirect URLs fields.' });
           break;
         case 'SAVE_CREDENTIALS':
           sendResponse(await saveCredentials(msg.clientId, msg.clientSecret));
@@ -277,14 +277,16 @@ async function migrateDraftsToPrivate(blogName, postIds) {
         try {
           const postData = await apiGet(`/blog/${blogName}/posts`, { id: postId });
           const post = postData.response?.posts?.[0];
-          const existingTags = post?.tags || [];
+          if (!post) throw new Error('Post not found');
+          const existingTags = post.tags || [];
           const hasFolderTag = existingTags.some(t => t.startsWith('tf-folder:'));
           const newTags = hasFolderTag
             ? existingTags
             : [...existingTags.filter(t => !t.startsWith('tf-folder:')), 'tf-folder:unsorted'];
 
-          await apiPost(`/blog/${blogName}/post/edit`, {
+          await apiPost(`/blog/${blogName}/post/reblog`, {
             id: postId,
+            reblog_key: post.reblog_key,
             state: 'private',
             tags: newTags.join(','),
           });
